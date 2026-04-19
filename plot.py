@@ -2,58 +2,38 @@ from SpiralTorsionSpringOptimizer import SpiralTorsionSpring
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import numpy as np
+from copy import deepcopy
 
-def plot_graph(inputs):
+def plot_graph(sp: SpiralTorsionSpring):
     # x-axis = thickness
     # y-axis = arclength
     # z-axis = stiffness
-    height = inputs['input_height']
-    elasticity = inputs['input_elasticity']
-    max_radius_pre = inputs['input_max_radius_pre']
-    radius_center = inputs['input_radius_center']
-    pitch_0 = inputs['input_pitch_0']
-    deltatheta_opt = inputs['input_deltatheta_opt']
-    torque_pre = inputs['input_torque_pre']
-    safety_factor = inputs['input_safety_factor']
-    stress_yield = inputs['input_stress_yield']
-    max_thickness = inputs['input_max_thickness']
-    nozzle_diameter = inputs['input_nozzle_diameter']
     def f(x, y):
-        z = SpiralTorsionSpring.calculate_stiffness(height, elasticity, x, y)
+        f_sp = deepcopy(sp)
+        f_sp.thickness = x
+        f_sp.arclength_E = y
+        f_sp.calculate_stiffness()
+        z = f_sp.stiffness
         cons_x = (x, y)
-        cons = SpiralTorsionSpring.cons_ms(
-            cons_x,
-            height,
-            elasticity,
-            max_radius_pre,
-            radius_center,
-            pitch_0,
-            deltatheta_opt,
-            torque_pre,
-            safety_factor,
-            stress_yield
-        )
-        c1 = cons[0]
-        c2 = cons[1]
-        c3 = cons[2]
+        c1, c2, c3 = f_sp.cons_ms(cons_x)
         z[c1 < 0] = 0
         z[c2 < 0] = 0
         z[c3 < 0] = 0
         return z
     # calculate bounds:
-    min_x = 2 * nozzle_diameter
-    max_x = max_radius_pre
+    min_x = 2 * sp.nozzle_diameter
+    max_x = sp.max_radius_pre
     min_y_thickness = (  # thickness that results in shortest arclength
-            3 * np.sqrt(2) * np.sqrt(torque_pre / (safety_factor * height * stress_yield))
+            3 * np.sqrt(2) * np.sqrt(sp.torque_pre / (sp.safety_factor * sp.height * sp.stress_yield))
     )
     if min_y_thickness < min_x:
         min_y_thickness = min_x
     min_y = (
-            elasticity * height * min_y_thickness ** 3 * deltatheta_opt
-            / (2 * (safety_factor * height * stress_yield * min_y_thickness ** 2 - 6 * torque_pre))
+            sp.elasticity * sp.height * min_y_thickness ** 3 * sp.deltatheta_opt
+            / (2 * (sp.safety_factor * sp.height * sp.stress_yield * min_y_thickness ** 2 - 6 * sp.torque_pre))
     )
     max_y = (
-            np.pi * (max_radius_pre - radius_center / (2 * min_x)) * (max_radius_pre + radius_center)
+            np.pi * (sp.max_radius_pre - sp.radius_center / (2 * min_x)) * (sp.max_radius_pre + sp.radius_center)
     )
     # Create space
     x_ax = np.linspace(min_x, max_x, 100)
