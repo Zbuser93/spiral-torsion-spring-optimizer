@@ -252,6 +252,7 @@ class SpiralTorsionSpring:
             "number_revolutions": self.number_revolutions,
             "arclength_E": self.arclength_E,
             "radius_pre": self.radius_pre,
+            "theta_E": self.theta_E,
             "theta_EMD": self.theta_EMD,
             "theta_Eend": self.theta_Eend,
             "stiffness": self.stiffness,
