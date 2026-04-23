@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from SpiralTorsionSpringOptimizer import SpiralTorsionSpring
+from spiral_torsion_spring_optimizer import SpiralTorsionSpring
 
 app = FastAPI()
 

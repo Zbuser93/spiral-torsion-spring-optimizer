@@ -1,4 +1,4 @@
-from SpiralTorsionSpringOptimizer import SpiralTorsionSpring
+from spiral_torsion_spring_optimizer import SpiralTorsionSpring
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import numpy as np

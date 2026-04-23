@@ -75,14 +75,14 @@ class SpiralTorsionSpring:
         max_arclength_E = (
             np.pi * (sp.max_radius_pre - sp.radius_center / (2 * min_thickness)) * (sp.max_radius_pre + sp.radius_center)
         )
-        lb = (min_thickness, min_arclength_E)
-        ub = (sp.max_thickness, max_arclength_E)
+        lb = (min_thickness, np.log(min_arclength_E))
+        ub = (sp.max_thickness, np.log(max_arclength_E))
 
         # optimize spring:
         if seed is not None:
             np.random.seed(seed)
         pso_kwargs = dict(
-            swarmsize=60,
+            swarmsize=20,    # 2D search space — 20 particles is well above the empirical optimum
             maxiter=500,
             omega=0.729,     # Clerc constriction — prevents diversity collapse in gbest PSO
             phip=1.49445,
@@ -95,13 +95,17 @@ class SpiralTorsionSpring:
             pso_kwargs.update(opt_params)
         xopt, fopt = pso(sp.obj_ms, lb, ub, f_ieqcons=sp.cons_ms, **pso_kwargs)
 
+        # Re-evaluate constraints at xopt — PSO's last cons_ms call may have been
+        # for a different particle, so sp.c1/c2/c3 could reflect an infeasible point.
+        sp.cons_ms(xopt)
+
         # determine feasibility:
         if sp.c1 < 0 or sp.c2 < 0 or sp.c3 < 0:
             return None
 
         # calculate remaining properties:
         sp.thickness = xopt[0]
-        sp.arclength_E = xopt[1]
+        sp.arclength_E = np.exp(xopt[1])
         sp.stiffness = -fopt
         sp.calculate_radius_E()
         sp.calculate_deltatheta_R()
@@ -122,7 +126,7 @@ class SpiralTorsionSpring:
 
     def cons_ms(self, x):
         self.thickness = x[0]
-        self.arclength_E= x[1]
+        self.arclength_E = np.exp(x[1])
         self.calculate_radius_E()
         self.calculate_deltatheta_R()
         self.calculate_theta_EMD()
@@ -138,7 +142,7 @@ class SpiralTorsionSpring:
 
     def obj_ms(self, x):
         self.thickness = x[0]
-        self.arclength_E = x[1]
+        self.arclength_E = np.exp(x[1])
         self.calculate_stiffness()
         return -self.stiffness
 
@@ -269,16 +273,16 @@ class SpiralTorsionSpring:
 if __name__ == '__main__':
     from plot import plot_graph
     user_inputs = {
-        'elasticity': 2600,
-        'stress_yield': 85,
-        'height': 4,
-        'max_radius_pre': 65,
-        'radius_center': 10,
+        'elasticity': 2000,
+        'stress_yield': 83,
+        'height': 15,
+        'max_radius_pre': 100,
+        'radius_center': 15,
         'pitch_0': 0.5,
-        'deltatheta_opt': 15.71,
-        'torque_pre': 0,
-        'safety_factor': .75,
-        'max_thickness': 3,
+        'deltatheta_opt': 3.14,
+        'torque_pre': 15000,
+        'safety_factor': .8,
+        'max_thickness': 20,
         'nozzle_diameter': 0.4
     }
     spring = SpiralTorsionSpring.maximize_stiffness(user_inputs)

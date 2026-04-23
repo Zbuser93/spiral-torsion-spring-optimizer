@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/SpiralTorsionSpringOptimizer.iml" filepath="$PROJECT_DIR$/.idea/SpiralTorsionSpringOptimizer.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/spiral-torsion-spring-optimizer.iml" filepath="$PROJECT_DIR$/.idea/spiral-torsion-spring-optimizer.iml" />
     </modules>
   </component>
 </project>
