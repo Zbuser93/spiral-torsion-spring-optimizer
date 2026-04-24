@@ -5,7 +5,7 @@ from spiral_torsion_spring_optimizer import SpiralTorsionSpring
 
 app = FastAPI()
 
-class OptimizeRequest(BaseModel):
+class MaximizeStiffnessRequest(BaseModel):
     elasticity: float = Field(gt=0)
     stress_yield: float = Field(gt=0)
     height: float = Field(gt=0)
@@ -17,7 +17,6 @@ class OptimizeRequest(BaseModel):
     safety_factor: float = Field(gt=0)
     max_thickness: float | None = Field(default=None, gt=0)
     nozzle_diameter: float = Field(gt=0)
-    seed: int | None = None
 
 class NoFeasibleSolutionError(Exception):
     pass
@@ -29,16 +28,11 @@ async def no_feasible_handler(request: Request, exc: NoFeasibleSolutionError):
         content={"error": "no_feasible_solution", "message": str(exc)},
     )
 
-@app.post("/v1/optimize")
-def optimize(req: OptimizeRequest):
+@app.post("/v1/maximize_stiffness")
+def maximize_stiffness(req: MaximizeStiffnessRequest):
     try:
-        data = req.model_dump()
-        seed = data.pop("seed", None)
-        if seed is not None:
-            import numpy as np
-            np.random.seed(seed)
-        spring = SpiralTorsionSpring.maximize_stiffness(data)
-        if spring:
+        spring = SpiralTorsionSpring.maximize_stiffness(req.model_dump())
+        if spring.res.success:
             return spring.to_dict()
         else:
             raise NoFeasibleSolutionError()
