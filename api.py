@@ -17,6 +17,7 @@ class MaximizeStiffnessRequest(BaseModel):
     safety_factor: float = Field(gt=0)
     max_thickness: float | None = Field(default=None, gt=0)
     nozzle_diameter: float = Field(gt=0)
+    opt_params: dict | None = Field(default=None)
 
 class NoFeasibleSolutionError(Exception):
     pass
@@ -31,7 +32,12 @@ async def no_feasible_handler(request: Request, exc: NoFeasibleSolutionError):
 @app.post("/v1/maximize_stiffness")
 def maximize_stiffness(req: MaximizeStiffnessRequest):
     try:
-        spring = SpiralTorsionSpring.maximize_stiffness(req.model_dump())
+        req_data = req.model_dump()
+        opt_params = req_data.pop('opt_params', None)
+        spring = SpiralTorsionSpring.maximize_stiffness(
+            req_data,
+            opt_params=opt_params
+        )
         if spring.res.success:
             return spring.to_dict()
         else:

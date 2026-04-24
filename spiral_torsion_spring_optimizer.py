@@ -44,7 +44,7 @@ class SpiralTorsionSpring:
         self.res = shgo_result
 
     @classmethod
-    def maximize_stiffness(cls, inputs: dict):
+    def maximize_stiffness(cls, inputs: dict, opt_params: dict = None):
         # instantiate spring:
         sp = cls(
             inputs['elasticity'],
@@ -81,7 +81,17 @@ class SpiralTorsionSpring:
         sp.arclength_bounds = (min_arclength_E, max_arclength_E)
 
         # optimize spring:
-        sp.res = shgo(
+        params = {
+            'n': 300,
+            'iters': 5,
+            'minimizer_kwargs': None,
+            'options': None,
+            'sampling_method': 'sobol',
+            'workers': 1
+        }
+        if opt_params:
+            params.update(opt_params)
+        sp.res = shgo(                                  # type: ignore
             func=sp.obj_ms,
             bounds=(
                 (min_thickness, sp.max_thickness),
@@ -92,8 +102,12 @@ class SpiralTorsionSpring:
                 lb=0,
                 ub=np.inf
             ),
-            n=200,
-            iters=5
+            n=params['n'],
+            iters=params['iters'],
+            minimizer_kwargs=params['minimizer_kwargs'],
+            options=params['options'],
+            sampling_method=params['sampling_method'],
+            workers=params['workers']
         )
 
         # calculate remaining properties:
@@ -120,13 +134,13 @@ class SpiralTorsionSpring:
             temp.calculate_radius_pre()
 
             #stress constraint:
-            temp.c1 = temp.safety_factor * temp.stress_yield - temp.stress_max
+            c1 = temp.safety_factor * temp.stress_yield - temp.stress_max
             #positive radius constraint:
-            temp.c2 = temp.radius_pre - temp.radius_E
+            c2 = temp.radius_pre - temp.radius_E
             #max radius constraint:
-            temp.c3 = temp.max_radius_pre - temp.radius_pre
+            c3 = temp.max_radius_pre - temp.radius_pre
 
-            g = np.array([temp.c1, temp.c2, temp.c3])
+            g = np.array([c1, c2, c3])
             if np.any(np.isnan(g)) or np.any(np.isinf(g)):
                 return np.array([-1e20, -1e20, -1e20])
             return g
@@ -283,16 +297,16 @@ class SpiralTorsionSpring:
 
 if __name__ == '__main__':
     user_inputs = {
-        'elasticity': 2000,
-        'stress_yield': 40,
+        'elasticity': 3100,
+        'stress_yield': 85,
         'height': 12,
         'max_radius_pre': 70,
         'radius_center': 15,
         'pitch_0': 0.5,
         'deltatheta_opt': 3.14,
-        'torque_pre': 1000,
+        'torque_pre': 2500,
         'safety_factor': .8,
-        'max_thickness': 8,
+        'max_thickness': None,
         'nozzle_diameter': 0.4
     }
     spring = SpiralTorsionSpring.maximize_stiffness(user_inputs)
