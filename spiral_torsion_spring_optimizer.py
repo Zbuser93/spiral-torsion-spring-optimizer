@@ -1,4 +1,5 @@
-from pyswarm import pso
+from scipy.optimize import shgo, NonlinearConstraint
+from copy import copy
 import numpy as np
 
 class SpiralTorsionSpring:
@@ -8,7 +9,7 @@ class SpiralTorsionSpring:
             torque_pre = None, safety_factor = None, stiffness = None, unutilized_elasticity = None, stress_max = None,
             max_radius_pre = None, radius_E = None, theta_EMD = None, deltatheta_R = None, theta_E = None,
             radius_R = None, torque_pre_max = None, theta_Eend = None, thickness_bounds = None, arclength_bounds = None,
-            nozzle_diameter = None, c1 = None, c2 = None, c3 = None
+            nozzle_diameter = None, c1 = None, c2 = None, c3 = None, shgo_result = None
     ):
         self.elasticity = elasticity
         self.stress_yield = stress_yield
@@ -40,9 +41,10 @@ class SpiralTorsionSpring:
         self.c1 = c1
         self.c2 = c2
         self.c3 = c3
+        self.res = shgo_result
 
     @classmethod
-    def maximize_stiffness(cls, inputs: dict, opt_params: dict = None, seed: int = None):
+    def maximize_stiffness(cls, inputs: dict):
         # instantiate spring:
         sp = cls(
             inputs['elasticity'],
@@ -75,76 +77,86 @@ class SpiralTorsionSpring:
         max_arclength_E = (
             np.pi * (sp.max_radius_pre - sp.radius_center / (2 * min_thickness)) * (sp.max_radius_pre + sp.radius_center)
         )
-        lb = (min_thickness, np.log(min_arclength_E))
-        ub = (sp.max_thickness, np.log(max_arclength_E))
-
-        # optimize spring:
-        if seed is not None:
-            np.random.seed(seed)
-        pso_kwargs = dict(
-            swarmsize=20,    # 2D search space — 20 particles is well above the empirical optimum
-            maxiter=500,
-            omega=0.729,     # Clerc constriction — prevents diversity collapse in gbest PSO
-            phip=1.49445,
-            phig=1.49445,
-            minstep=1e-6,
-            minfunc=1e-6,
-            debug=False,
-        )
-        if opt_params:
-            pso_kwargs.update(opt_params)
-        xopt, fopt = pso(sp.obj_ms, lb, ub, f_ieqcons=sp.cons_ms, **pso_kwargs)
-
-        # Re-evaluate constraints at xopt — PSO's last cons_ms call may have been
-        # for a different particle, so sp.c1/c2/c3 could reflect an infeasible point.
-        sp.cons_ms(xopt)
-
-        # determine feasibility:
-        if sp.c1 < 0 or sp.c2 < 0 or sp.c3 < 0:
-            return None
-
-        # calculate remaining properties:
-        sp.thickness = xopt[0]
-        sp.arclength_E = np.exp(xopt[1])
-        sp.stiffness = -fopt
-        sp.calculate_radius_E()
-        sp.calculate_deltatheta_R()
-        sp.calculate_theta_EMD()
-        sp.calculate_theta_Eend()
-        sp.calculate_radius_pre()
-        sp.calculate_theta_E()
-        sp.calculate_radius_R()
-        sp.calculate_pitch_R()
-        sp.calculate_number_revolutions()
-        sp.calculate_stress_max()
-        sp.calculate_unutilized_elasticity()
-        sp.calculate_torque_pre_max()
         sp.thickness_bounds = (min_thickness, sp.max_thickness)
         sp.arclength_bounds = (min_arclength_E, max_arclength_E)
+
+        # optimize spring:
+        sp.res = shgo(
+            func=sp.obj_ms,
+            bounds=(
+                (min_thickness, sp.max_thickness),
+                (min_arclength_E, max_arclength_E)
+            ),
+            constraints=NonlinearConstraint(
+                fun=sp.cons_ms,
+                lb=0,
+                ub=np.inf
+            ),
+            n=200,
+            iters=5
+        )
+
+        # calculate remaining properties:
+        if sp.res.success:
+            sp.build_spring_ms()
 
         return sp
 
     def cons_ms(self, x):
-        self.thickness = x[0]
-        self.arclength_E = np.exp(x[1])
+        if (x[0] <= self.thickness_bounds[0]
+            or x[0] >= self.thickness_bounds[1]
+            or x[1] <= self.arclength_bounds[0]
+            or x[1] >= self.arclength_bounds[1]
+        ):
+            return np.array([-1e20, -1e20, -1e20])
+        try:
+            temp = copy(self)
+            temp.thickness = x[0]
+            temp.arclength_E = (x[1])
+            temp.calculate_radius_E()
+            temp.calculate_deltatheta_R()
+            temp.calculate_theta_EMD()
+            temp.calculate_stress_max()
+            temp.calculate_radius_pre()
+
+            #stress constraint:
+            temp.c1 = temp.safety_factor * temp.stress_yield - temp.stress_max
+            #positive radius constraint:
+            temp.c2 = temp.radius_pre - temp.radius_E
+            #max radius constraint:
+            temp.c3 = temp.max_radius_pre - temp.radius_pre
+
+            g = np.array([temp.c1, temp.c2, temp.c3])
+            if np.any(np.isnan(g)) or np.any(np.isinf(g)):
+                return np.array([-1e20, -1e20, -1e20])
+            return g
+
+        except Exception:
+            return np.array([-1e20, -1e20, -1e20])
+
+    def obj_ms(self, x):
+        temp = copy(self)
+        temp.thickness = x[0]
+        temp.arclength_E = (x[1])
+        temp.calculate_stiffness()
+        return -temp.stiffness
+
+    def build_spring_ms(self):
+        self.cons_ms(self.res.x)
+        self.thickness = self.res.x[0]
+        self.arclength_E = (self.res.x[1])
+        self.stiffness = -self.res.fun
         self.calculate_radius_E()
         self.calculate_deltatheta_R()
         self.calculate_theta_EMD()
-        self.calculate_stress_max()
+        self.calculate_theta_Eend()
         self.calculate_radius_pre()
-        #stress constraint:
-        self.c1 = -(self.stress_max - self.safety_factor * self.stress_yield)
-        #positive radius constraint:
-        self.c2 = self.radius_pre - self.radius_E
-        #max radius constraint:
-        self.c3 = self.max_radius_pre - self.radius_pre
-        return [self.c1, self.c2, self.c3]
-
-    def obj_ms(self, x):
-        self.thickness = x[0]
-        self.arclength_E = np.exp(x[1])
-        self.calculate_stiffness()
-        return -self.stiffness
+        self.calculate_theta_E()
+        self.calculate_radius_R()
+        self.calculate_pitch_R()
+        self.calculate_number_revolutions()
+        self.calculate_stress_max()
+        self.calculate_unutilized_elasticity()
 
     def calculate_stiffness(self):
         self.stiffness = (self.elasticity * self.height * self.thickness ** 3) / (12 * self.arclength_E)
@@ -211,41 +223,39 @@ class SpiralTorsionSpring:
                 / (12 * self.arclength_E))
 
     def verbose(self):
-        rep = [
-            print(''),
-            print('Properties:'),
-            print(f'Elasticity: {round(self.elasticity, 2)}MPa'),
-            print(f'Yield stress: {round(self.stress_yield, 2)}MPa'),
-            print(f'Safety factor: {self.safety_factor}'),
-            print(f'Stiffness: {round(self.stiffness, 2)}Nmm/rad'),
-            print(f'Outer radius at preload: {round(self.radius_pre, 2)}mm'),
-            print(f'Arclength of spring: {round(self.arclength_E, 2)}mm'),
-            print(f'Range of motion: {self.deltatheta_opt}rad'),
-            print(f'Preload torque: {self.torque_pre}Nmm'),
-            print(''),
-            print('Physical Dimensions (output to CAD):'),
-            print(f'Height: {self.height}mm'),
-            print(f'Thickness: {round(self.thickness, 2)}mm'),
-            print(f'Center pad radius: {self.radius_center}mm'),
-            print(f'Minimum coil distance: {self.pitch_0}mm'),
-            print(f'Pitch @ rest: {round(self.pitch_R, 2)}mm'),
-            print(f'Revolutions at rest: {round(self.number_revolutions, 2)}'),
+        if self.res.success:
+            from plot import plot_graph
+            print(self.res.message)
+            print('')
+            print('Input Variable Bounds:')
+            print(f'Thickness: [{round(self.thickness_bounds[0], 2)}, {round(self.thickness_bounds[1], 2)}]')
+            print(f'Arclength: [{round(self.arclength_bounds[0], 2)}, {round(self.arclength_bounds[1], 2)}]')
+            print('')
+            print('Properties:')
+            print(f'Elasticity: {round(self.elasticity, 2)}MPa')
+            print(f'Yield stress: {round(self.stress_yield, 2)}MPa')
+            print(f'Safety factor: {self.safety_factor}')
+            print(f'Stiffness: {round(self.stiffness, 2)}Nmm/rad')
+            print(f'Outer radius at preload: {round(self.radius_pre, 2)}mm')
+            print(f'Arclength of spring: {round(self.arclength_E, 2)}mm')
+            print(f'Range of motion: {self.deltatheta_opt}rad')
+            print(f'Preload torque: {self.torque_pre}Nmm')
+            print('')
+            print('Physical Dimensions (output to CAD):')
+            print(f'Height: {self.height}mm')
+            print(f'Thickness: {round(self.thickness, 2)}mm')
+            print(f'Center pad radius: {self.radius_center}mm')
+            print(f'Minimum coil distance: {self.pitch_0}mm')
+            print(f'Pitch @ rest: {round(self.pitch_R, 2)}mm')
+            print(f'Revolutions at rest: {round(self.number_revolutions, 2)}')
             print(f'Inner spiral radius: {round(self.radius_center + self.thickness/2 + self.pitch_0)}')
-        ]
-        if round(self.unutilized_elasticity) != 0:
-            rep.append([
-                print(''),
-                print(f'This spring leaves {round(self.unutilized_elasticity, 2)}MPa of elasticity unutilized!'),
+            if round(self.unutilized_elasticity) != 0:
+                print('')
+                print(f'This spring leaves {round(self.unutilized_elasticity, 2)}MPa of elasticity unutilized!')
                 print(f'Increase preload torque to {round(self.torque_pre_max, 2)}Nmm to fully utilize elasticity.')
-            ])
-        if not self.arclength_bounds is None:
-            rep.insert(8, print(f'Arclength bounds: {self.arclength_bounds}'))
-        if not self.thickness_bounds is None:
-            position = 14
-            if not self.arclength_bounds is None:
-                position += 1
-            rep.insert(position, print(f'Thickness bounds: {self.thickness_bounds}'))
-        return rep
+            plot_graph(self)
+        else:
+            print(self.res)
 
     def to_dict(self):
         return {
@@ -271,21 +281,18 @@ class SpiralTorsionSpring:
         }
 
 if __name__ == '__main__':
-    from plot import plot_graph
     user_inputs = {
         'elasticity': 2000,
-        'stress_yield': 83,
-        'height': 15,
-        'max_radius_pre': 100,
+        'stress_yield': 40,
+        'height': 12,
+        'max_radius_pre': 70,
         'radius_center': 15,
         'pitch_0': 0.5,
         'deltatheta_opt': 3.14,
-        'torque_pre': 15000,
+        'torque_pre': 1000,
         'safety_factor': .8,
-        'max_thickness': 20,
+        'max_thickness': 8,
         'nozzle_diameter': 0.4
     }
     spring = SpiralTorsionSpring.maximize_stiffness(user_inputs)
-    if spring:
-        spring.verbose()
-        plot_graph(spring)
+    spring.verbose()

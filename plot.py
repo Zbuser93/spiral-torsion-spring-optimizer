@@ -10,16 +10,29 @@ def plot_graph(sp: SpiralTorsionSpring):
     # z-axis = stiffness
     def f(x, y):
         f_sp = deepcopy(sp)
+
         f_sp.thickness = x
         f_sp.arclength_E = y
+
         f_sp.calculate_stiffness()
+        f_sp.calculate_radius_E()
+        f_sp.calculate_deltatheta_R()
+        f_sp.calculate_theta_EMD()
+        f_sp.calculate_stress_max()
+        f_sp.calculate_radius_pre()
+
         z = f_sp.stiffness
-        cons_x = (x, y)
-        c1, c2, c3 = f_sp.cons_ms(cons_x)
-        z[c1 < 0] = 0
-        z[c2 < 0] = 0
-        z[c3 < 0] = 0
+
+        c1 = f_sp.safety_factor * f_sp.stress_yield - f_sp.stress_max
+        c2 = f_sp.radius_pre - f_sp.radius_E
+        c3 = f_sp.max_radius_pre - f_sp.radius_pre
+
+        z[c1 < 0] = np.nan
+        z[c2 < 0] = np.nan
+        z[c3 < 0] = np.nan
+
         return z
+
     # calculate bounds:
     min_x = 2 * sp.nozzle_diameter
     max_x = sp.max_radius_pre
@@ -35,11 +48,13 @@ def plot_graph(sp: SpiralTorsionSpring):
     max_y = (
             np.pi * (sp.max_radius_pre - sp.radius_center / (2 * min_x)) * (sp.max_radius_pre + sp.radius_center)
     )
+
     # Create space
     x_ax = np.linspace(min_x, max_x, 100)
     y_ax = np.linspace(min_y, max_y, 100)
     x_ar, y_ar = np.meshgrid(x_ax, y_ax)
     z_ar = f(x_ar, y_ar)
+
     # Plot the surface
     fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
     ax.plot_surface(x_ar, y_ar, z_ar, vmin=z_ar.min() * 2, cmap=cm.Blues)
