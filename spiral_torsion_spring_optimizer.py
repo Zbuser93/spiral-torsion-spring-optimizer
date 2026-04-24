@@ -157,6 +157,7 @@ class SpiralTorsionSpring:
         self.calculate_number_revolutions()
         self.calculate_stress_max()
         self.calculate_unutilized_elasticity()
+        self.calculate_torque_pre_max()
 
     def calculate_stiffness(self):
         self.stiffness = (self.elasticity * self.height * self.thickness ** 3) / (12 * self.arclength_E)
