@@ -44,6 +44,8 @@ Settings:
     - Spring height (z-axis print height if 3D printing)
 7. _δ_
     - Safety factor (maximum portion of yield stress to be used)
+8. _d<sub>nozzle</sub>_
+    - 3D printer nozzle diameter; sets the minimum spring thickness as `2 × d_nozzle`
 
 Material Data:
 1. _E_
@@ -57,7 +59,7 @@ Variables:
 2. _L<sub>E</sub>_
     - Arclength of the effective portion of the spring
 
-PSO Target:
+Optimizer Target:
 1. _K_
     - Stiffness (spring constant)
 
@@ -90,9 +92,74 @@ Outputs:
     - Number of spring coil revolutions at rest state
 2. _p<sub>R</sub>_
     - Spring pitch at rest state
+3. _τ<sub>pre_max</sub>_
+    - Maximum preload torque that would fully utilize the material's elastic range without exceeding the safety factor
 
-## Current State of the Project
+## Usage
 
-The script will successfully optimize a spring using pyswarm, however you have to somewhat tediously type in the inputs by manually changing the variables. The next step will be to create a GUI that takes the inputs from the user, and a macro for FreeCAD that uses this script to automatically generate the spring.
+### WebUI
+Run this code on [my website](https://zacharybuser.com/projects/spiral-torsion-spring-optimizer)
 
-Currently, this project only supports goal 1, though I do plan to support all possible optimization goals in the future. Each optimization goal will have its own constructor method within the SpiralTorsionSpring class, in order to handle the different spring property layouts of each goal. An optimizer for serpentine springs is coming soon as well (the typical 3D printed linear spring, not the bed spring).
+### Python
+
+```python
+from spiral_torsion_spring_optimizer import SpiralTorsionSpring
+
+inputs = {
+    'elasticity': 3100,        # MPa
+    'stress_yield': 85,        # MPa
+    'height': 12,              # mm
+    'max_radius_pre': 70,      # mm
+    'radius_center': 15,       # mm
+    'pitch_0': 0.5,            # mm — minimum coil gap at MD state
+    'deltatheta_opt': 3.14,    # rad — desired ROM (preload → MD)
+    'torque_pre': 2800,        # Nmm
+    'safety_factor': 0.8,
+    'nozzle_diameter': 0.4,    # mm — sets minimum thickness (2 × nozzle_diameter)
+    'max_thickness': None,     # mm — upper bound on thickness, or None
+}
+spring = SpiralTorsionSpring.maximize_stiffness(inputs)
+spring.verbose()
+```
+
+`spring.to_dict()` returns all computed outputs: `height`, `thickness`, `radius_center`, `pitch_R`, `number_revolutions`, `arclength_E`, `radius_pre`, `theta_E`, `theta_EMD`, `theta_Eend`, `stiffness`, `stress_yield`, `safety_factor`, `unutilized_elasticity`, `torque_pre_max`, and `bounds`.
+
+### REST API
+
+Start the server:
+
+```bash
+uvicorn api:app
+```
+
+**`POST /v1/maximize_stiffness`** — runs the optimizer and returns the spring dict on success, or `422` with `{"error": "no_feasible_solution"}` if no valid spring exists.
+
+```bash
+curl -X POST http://localhost:8000/v1/maximize_stiffness \
+  -H "Content-Type: application/json" \
+  -d '{
+    "elasticity": 3100, "stress_yield": 85, "height": 12,
+    "max_radius_pre": 70, "radius_center": 15, "pitch_0": 0.5,
+    "deltatheta_opt": 3.14, "torque_pre": 2800, "safety_factor": 0.8,
+    "nozzle_diameter": 0.4, "max_thickness": null
+  }'
+```
+
+**`GET /health`** — returns `{"status": "ok"}`.
+
+### Optimizer Hyperparameters (`opt_params`)
+
+An optional `opt_params` dict can be passed to `maximize_stiffness()` or included in the API request body to tune the shgo solver:
+
+| Key | Default | Description                                                 |
+|-----|---------|-------------------------------------------------------------|
+| `n` | `300` | Sampling points per iteration                               |
+| `iters` | `5` | Number of shgo iterations                                   |
+| `sampling_method` | `'sobol'` | Sampling strategy: `'sobol'`, `'halton'`, or `'simplicial'` |
+| `workers` | `1` | Parallel workers (multiple CPUs currently unsupported)      |
+| `minimizer_kwargs` | `None` | Options dict forwarded to the scipy local minimizer         |
+| `options` | `None` | Additional shgo solver options dict                         |
+
+```python
+spring = SpiralTorsionSpring.maximize_stiffness(inputs, opt_params={'n': 500, 'iters': 8, 'workers': -1})
+```
