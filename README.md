@@ -44,8 +44,8 @@ Settings:
     - Spring height (z-axis print height if 3D printing)
 7. _δ_
     - Safety factor (maximum portion of yield stress to be used)
-8. _d<sub>nozzle</sub>_
-    - 3D printer nozzle diameter; sets the minimum spring thickness as `2 × d_nozzle`
+8. _d<sub>noz</sub>_
+    - 3D printer nozzle diameter; sets the minimum spring thickness as `2 × d_noz`
 
 Material Data:
 1. _E_
