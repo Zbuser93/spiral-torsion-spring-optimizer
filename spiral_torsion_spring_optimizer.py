@@ -85,11 +85,11 @@ class SpiralTorsionSpring:
 
         # configure optimizer parameters:
         params = {
-            'n': 300,
-            'iters': 5,
+            'n': 256,
+            'iters': 3,
             'minimizer_kwargs': None,
             'options': None,
-            'sampling_method': 'simplicial',
+            'sampling_method': 'sobol',
             'workers': 1
         }
         if opt_params:
