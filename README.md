@@ -161,5 +161,5 @@ An optional `opt_params` dict can be passed to `maximize_stiffness()` or include
 | `options` | `None` | Additional shgo solver options dict                         |
 
 ```python
-spring = SpiralTorsionSpring.maximize_stiffness(inputs, opt_params={'n': 500, 'iters': 8, 'workers': -1})
+spring = SpiralTorsionSpring.maximize_stiffness(inputs, opt_params={'n': 512, 'iters': 5})
 ```
