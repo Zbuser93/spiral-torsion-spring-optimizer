@@ -65,32 +65,37 @@ class SpiralTorsionSpring:
         if sp.max_thickness is None:
             sp.max_thickness = sp.max_radius_pre
         min_arclength_E_thickness = (
-            # thickness that results in shortest arclength
+            # thickness that results in shortest arclength (derivative of min_arclength_E with respect to thickness)
             3 * np.sqrt(2) * np.sqrt(sp.torque_pre / (sp.safety_factor * sp.height * sp.stress_yield))
         )
         if min_arclength_E_thickness < min_thickness:
             min_arclength_E_thickness = min_thickness
         min_arclength_E = (
+            # the minimum arclength required to survive total range of motion without exceeding allowable stress
+            # calculate_stress_max with expanded deltatheta_R solved for arclength_E
             sp.elasticity * sp.height * min_arclength_E_thickness ** 3 * sp.deltatheta_opt
             / (2 * (sp.safety_factor * sp.height * sp.stress_yield * min_arclength_E_thickness ** 2 - 6 * sp.torque_pre))
         )
         max_arclength_E = (
-            np.pi * (sp.max_radius_pre - sp.radius_center / (2 * min_thickness)) * (sp.max_radius_pre + sp.radius_center)
+            # longest spring that can fit in the allotted area
+            np.pi * (sp.max_radius_pre ** 2 - sp.radius_center ** 2) / (min_thickness + sp.pitch_0)
         )
         sp.thickness_bounds = (min_thickness, sp.max_thickness)
         sp.arclength_bounds = (min_arclength_E, max_arclength_E)
 
-        # optimize spring:
+        # configure optimizer parameters:
         params = {
             'n': 300,
             'iters': 5,
             'minimizer_kwargs': None,
             'options': None,
-            'sampling_method': 'sobol',
+            'sampling_method': 'simplicial',
             'workers': 1
         }
         if opt_params:
             params.update(opt_params)
+
+        # optimize spring:
         sp.res = shgo(                                  # type: ignore
             func=sp.obj_ms,
             bounds=(
@@ -117,12 +122,15 @@ class SpiralTorsionSpring:
         return sp
 
     def cons_ms(self, x):
+        # validate variables:
         if (x[0] <= self.thickness_bounds[0]
             or x[0] >= self.thickness_bounds[1]
             or x[1] <= self.arclength_bounds[0]
             or x[1] >= self.arclength_bounds[1]
         ):
             return np.array([-1e20, -1e20, -1e20])
+
+        # calculate constraints:
         try:
             temp = copy(self)
             temp.thickness = x[0]
@@ -133,18 +141,19 @@ class SpiralTorsionSpring:
             temp.calculate_stress_max()
             temp.calculate_radius_pre()
 
-            #stress constraint:
+            # stress constraint:
             c1 = temp.safety_factor * temp.stress_yield - temp.stress_max
-            #positive radius constraint:
+            # positive radius constraint:
             c2 = temp.radius_pre - temp.radius_E
-            #max radius constraint:
+            # max radius constraint:
             c3 = temp.max_radius_pre - temp.radius_pre
 
             g = np.array([c1, c2, c3])
+
+            # validate results:
             if np.any(np.isnan(g)) or np.any(np.isinf(g)):
                 return np.array([-1e20, -1e20, -1e20])
             return g
-
         except Exception:
             return np.array([-1e20, -1e20, -1e20])
 
@@ -153,13 +162,17 @@ class SpiralTorsionSpring:
         temp.thickness = x[0]
         temp.arclength_E = (x[1])
         temp.calculate_stiffness()
+        # return negative stiffness to minimizer:
         return -temp.stiffness
 
     def build_spring_ms(self):
+        # store results:
         self.cons_ms(self.res.x)
         self.thickness = self.res.x[0]
         self.arclength_E = (self.res.x[1])
         self.stiffness = -self.res.fun
+
+        # calculate remaining properties:
         self.calculate_radius_E()
         self.calculate_deltatheta_R()
         self.calculate_theta_EMD()
@@ -177,20 +190,26 @@ class SpiralTorsionSpring:
         self.stiffness = (self.elasticity * self.height * self.thickness ** 3) / (12 * self.arclength_E)
 
     def calculate_arclength_E(self):
+        # effective arclength (length of the spring center line)
         self.arclength_E = (self.elasticity * self.height * self.thickness ** 3) / (12 * self.stiffness)
 
     def calculate_radius_E(self):
+        # effective radius (inner radius of spring center line)
         self.radius_E = self.radius_center + self.thickness / 2 + self.pitch_0
 
     def calculate_theta_EMD(self):
+        # theta from origin to beginning of spring (I = ineffective):
         theta_IMD = (2 * np.pi * self.radius_E) / (self.thickness + self.pitch_0)
+        # arclength from origin to beginning of spring:
         arclength_IMD = np.pi * self.radius_E * (theta_IMD / (2 * np.pi))
+        # total arclength from origin at MD state:
         arclength_MD = self.arclength_E + arclength_IMD
+        # total theta from origin at MD state:
         theta_MD = np.sqrt((4 * np.pi * arclength_MD) / (self.thickness + self.pitch_0))
+        # theta of spring at MD state (E = effective):
         self.theta_EMD = theta_MD - theta_IMD
 
     def calculate_theta_Eend(self):
-        # deformation at which the spring self-collides
         # theta from origin to beginning of spring (I = ineffective):
         theta_Iend = (2 * np.pi * self.radius_E) / self.thickness
         # arclength from origin to beginning of spring:
@@ -203,36 +222,49 @@ class SpiralTorsionSpring:
         self.theta_Eend = theta_end - theta_Iend
 
     def calculate_radius_pre(self):
+        # theta of spring at pre-load state (working backwards from MD state where pitch is obvious):
         theta_pre = self.theta_EMD - self.deltatheta_opt
+        # outer radius of spring at pre-load state (including thickness, not just center line):
         self.radius_pre = (2 * self.arclength_E) / theta_pre - self.radius_E + self.thickness / 2
 
     def calculate_deltatheta_R(self):
+        # deformation necessary to achieve preload torque (stress equation solved for deformation):
         deltatheta_pre = ((2 * self.arclength_E * 6 * self.torque_pre)
                           / (self.elasticity * self.height * self.thickness ** 3))
+        # total deformation from rest state to MD state:
         self.deltatheta_R = deltatheta_pre + self.deltatheta_opt
 
     def calculate_theta_E(self):
+        # theta of effective length of spring at rest state:
         self.theta_E = self.theta_EMD - self.deltatheta_R
 
     def calculate_radius_R(self):
+        # outer radius of spring at rest:
         self.radius_R = (2 * self.arclength_E) / self.theta_E - self.radius_E + self.thickness / 2
 
     def calculate_pitch_R(self):
+        # pitch of spring center line at rest:
         self.pitch_R = (2 * np.pi * (self.radius_R - self.radius_E)) / self.theta_E
 
     def calculate_number_revolutions(self):
+        # number of revolutions of spring at rest:
         self.number_revolutions = self.theta_E / (2 * np.pi)
 
     def calculate_stress_max(self):
+        # stress on the spring at MD state (not end state!):
         self.stress_max = (self.elasticity * self.thickness * self.deltatheta_R) / (2 * self.arclength_E)
 
     def calculate_torque_max(self):
+        # torque on spring at MD state (not end state!):
         self.torque_max = (self.stress_max * self.height * self.thickness ** 2) / 6
 
     def calculate_unutilized_elasticity(self):
+        # calculate how much more stress the spring can handle at MD state
+        # if not zero, suggest increasing torque_pre to torque_pre_max (will not reduce torque_max)
         self.unutilized_elasticity = self.safety_factor * self.stress_yield - self.stress_max
 
     def calculate_torque_pre_max(self):
+        # calculate maximum torque_pre the spring can handle:
         self.torque_pre_max = (((self.height * self.thickness ** 2 * 2 * self.arclength_E * self.safety_factor * self.stress_yield)
                 - (self.elasticity * self.height * self.thickness ** 3 * self.deltatheta_opt))
                 / (12 * self.arclength_E))
@@ -277,6 +309,7 @@ class SpiralTorsionSpring:
             "height": self.height,
             "thickness": self.thickness,
             "radius_center": self.radius_center,
+            "radius_E": self.radius_E,
             "pitch_R": self.pitch_R,
             "number_revolutions": self.number_revolutions,
             "arclength_E": self.arclength_E,
@@ -304,7 +337,7 @@ if __name__ == '__main__':
         'radius_center': 15,
         'pitch_0': 0.5,
         'deltatheta_opt': 3.14,
-        'torque_pre': 2500,
+        'torque_pre': 2800,
         'safety_factor': .8,
         'max_thickness': None,
         'nozzle_diameter': 0.4

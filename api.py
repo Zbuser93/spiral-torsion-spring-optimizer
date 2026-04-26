@@ -1,5 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from spiral_torsion_spring_optimizer import SpiralTorsionSpring
 
@@ -19,16 +18,6 @@ class MaximizeStiffnessRequest(BaseModel):
     nozzle_diameter: float = Field(gt=0)
     opt_params: dict | None = Field(default=None)
 
-class NoFeasibleSolutionError(Exception):
-    pass
-
-@app.exception_handler(NoFeasibleSolutionError)
-async def no_feasible_handler(request: Request, exc: NoFeasibleSolutionError):
-    return JSONResponse(
-        status_code=422,
-        content={"error": "no_feasible_solution", "message": str(exc)},
-    )
-
 @app.post("/v1/maximize_stiffness")
 def maximize_stiffness(req: MaximizeStiffnessRequest):
     try:
@@ -38,10 +27,7 @@ def maximize_stiffness(req: MaximizeStiffnessRequest):
             req_data,
             opt_params=opt_params
         )
-        if spring.res.success:
-            return spring.to_dict()
-        else:
-            raise NoFeasibleSolutionError()
+        return spring.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
