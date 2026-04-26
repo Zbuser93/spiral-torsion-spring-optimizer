@@ -269,8 +269,54 @@ class SpiralTorsionSpring:
                 - (self.elasticity * self.height * self.thickness ** 3 * self.deltatheta_opt))
                 / (12 * self.arclength_E))
 
+    @classmethod
+    def maximize_stiffness_analytic(cls, inputs: dict):
+        from analytic_solver import maximize_stiffness
+        sol = maximize_stiffness(inputs)
+        return cls._from_solution(sol, inputs)
+
+    @classmethod
+    def maximize_torque_analytic(cls, inputs: dict):
+        from analytic_solver import maximize_torque
+        sol = maximize_torque(inputs)
+        return cls._from_solution(sol, inputs)
+
+    @classmethod
+    def _from_solution(cls, sol, inputs):
+        sp = cls(inputs['elasticity'], inputs['stress_yield'])
+        sp.height = inputs['height']
+        sp.max_radius_pre = inputs['max_radius_pre']
+        sp.radius_center = inputs['radius_center']
+        sp.pitch_0 = inputs['pitch_0']
+        sp.deltatheta_opt = inputs['deltatheta_opt']
+        sp.torque_pre = sol.preload_torque
+        sp.safety_factor = inputs['safety_factor']
+        sp.nozzle_diameter = inputs['nozzle_diameter']
+        sp.thickness = sol.thickness
+        sp.arclength_E = sol.arclength
+        sp.stiffness = sol.stiffness
+        sp.stress_max = sol.stress_max
+        sp.radius_E = sol.radius_E
+        sp.radius_pre = sol.radius_pre
+        sp.radius_R = sol.radius_R
+        sp.pitch_R = sol.pitch_R
+        sp.number_revolutions = sol.n_revolutions
+        sp.torque_pre_max = sol.M_pre_max
+        sp.unutilized_elasticity = sol.headroom['stress_MPa']
+        sp.thickness_bounds = (
+            2 * inputs['nozzle_diameter'],
+            inputs.get('max_thickness') or inputs['max_radius_pre'],
+        )
+        sp.arclength_bounds = (None, None)
+        sp.res = None
+        sp.calculate_theta_EMD()
+        sp.calculate_deltatheta_R()
+        sp.calculate_theta_E()
+        sp.calculate_theta_Eend()
+        return sp
+
     def verbose(self):
-        if self.res.success:
+        if self.res is None or self.res.success:
             from plot import plot_graph
             print(self.res.message)
             print('')
@@ -325,7 +371,8 @@ class SpiralTorsionSpring:
             "bounds": {
                 "thickness": self.thickness_bounds,
                 "arclength": self.arclength_bounds
-            }
+            },
+            "optimizer_result": dict(self.res) if self.res is not None else None
         }
 
 if __name__ == '__main__':
