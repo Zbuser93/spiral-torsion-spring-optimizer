@@ -153,8 +153,8 @@ An optional `opt_params` dict can be passed to `maximize_stiffness()` or include
 
 | Key | Default | Description                                                 |
 |-----|---------|-------------------------------------------------------------|
-| `n` | `300` | Sampling points per iteration                               |
-| `iters` | `5` | Number of shgo iterations                                   |
+| `n` | `256` | Sampling points per iteration                               |
+| `iters` | `3` | Number of shgo iterations                                   |
 | `sampling_method` | `'sobol'` | Sampling strategy: `'sobol'`, `'halton'`, or `'simplicial'` |
 | `workers` | `1` | Parallel workers (multiple CPUs currently unsupported)      |
 | `minimizer_kwargs` | `None` | Options dict forwarded to the scipy local minimizer         |
