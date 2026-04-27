@@ -34,8 +34,8 @@ def plot_graph(sp: SpiralTorsionSpring):
         return z
 
     # calculate bounds:
-    min_x = 2 * sp.nozzle_diameter
-    max_x = sp.max_radius_pre
+    min_x = sp.min_thickness
+    max_x = sp.max_thickness
     min_y_thickness = (  # thickness that results in shortest arclength
             3 * np.sqrt(2) * np.sqrt(sp.torque_pre / (sp.safety_factor * sp.height * sp.stress_yield))
     )
