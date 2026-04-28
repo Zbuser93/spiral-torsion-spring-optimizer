@@ -59,23 +59,19 @@ class SpiralTorsionSpring:
         sp.pitch_0 = inputs['pitch_0']
         sp.deltatheta_opt = inputs['deltatheta_opt']
         sp.torque_pre = inputs['torque_pre']
-        sp.min_thickness = inputs.get('min_thickness') or 0.001
+        sp.min_thickness = inputs['min_thickness']
         sp.max_thickness = inputs['max_thickness']
 
         # calculate bounds:
         # minimum thickness:
-        if sp.torque_pre > 0:
-            # thickness at which spring maxes out at preload_torque
-            min_thickness = np.sqrt(6 * sp.torque_pre / (sp.height * sp.stress_allowed))
-        else:
-            min_thickness = 0.001
-        sp.min_thickness = max(sp.min_thickness, min_thickness)
+        base_min_thickness = 0.1
+        torque_pre_min_thickness = np.sqrt(6 * sp.torque_pre / (sp.height * sp.stress_allowed))
+        user_min_thickness = float(sp.min_thickness) if sp.min_thickness is not None else 0.0
+        sp.min_thickness = max(base_min_thickness, torque_pre_min_thickness, user_min_thickness)
         # maximum thickness:
         max_thickness = sp.max_feasible_thickness()
         if sp.max_thickness:
-            sp.max_thickness = min(sp.max_thickness, max_thickness)
-        else:
-            sp.max_thickness = max_thickness
+            max_thickness = min(sp.max_thickness, max_thickness)
         # minimum arclength:
         min_arclength_E_thickness = (
             # thickness that results in shortest arclength (derivative of min_arclength_E with respect to thickness)
@@ -94,7 +90,7 @@ class SpiralTorsionSpring:
             # longest spring that can fit in the allotted area
             np.pi * (sp.max_radius_pre ** 2 - sp.radius_center ** 2) / (sp.min_thickness + sp.pitch_0)
         )
-        sp.thickness_bounds = (sp.min_thickness, sp.max_thickness)
+        sp.thickness_bounds = (sp.min_thickness, max_thickness)
         sp.arclength_bounds = (min_arclength_E, max_arclength_E)
 
         # configure optimizer parameters:
@@ -116,8 +112,8 @@ class SpiralTorsionSpring:
         sp.res = shgo(                                  # type: ignore
             func=sp.obj_ms,
             bounds=(
-                (sp.min_thickness, sp.max_thickness),
-                (min_arclength_E, max_arclength_E)
+                sp.thickness_bounds,
+                sp.arclength_bounds
             ),
             constraints=NonlinearConstraint(
                 fun=sp.cons_ms,
@@ -133,8 +129,15 @@ class SpiralTorsionSpring:
         )
 
         # calculate remaining properties:
+        sp.build_spring_ms()
+
+        # validate constraints:
         if sp.res.success:
-            sp.build_spring_ms()
+            if round(sp.c1, 2) < 0 or round(sp.c2, 2) < 0 or round(sp.c3, 2) < 0:
+                sp.res.success = False
+                sp.res.message = (
+                    "SHGO reported success but the solution violates constraints"
+                )
 
         return sp
 
@@ -148,10 +151,10 @@ class SpiralTorsionSpring:
 
     def cons_ms(self, x):
         # validate variables:
-        if (x[0] <= self.thickness_bounds[0]
-            or x[0] >= self.thickness_bounds[1]
-            or x[1] <= self.arclength_bounds[0]
-            or x[1] >= self.arclength_bounds[1]
+        if (x[0] < self.thickness_bounds[0]
+            or x[0] > self.thickness_bounds[1]
+            or x[1] < self.arclength_bounds[0]
+            or x[1] > self.arclength_bounds[1]
         ):
             return np.array([-1e20, -1e20, -1e20])
 
@@ -321,44 +324,41 @@ class SpiralTorsionSpring:
                 / (12 * self.arclength_E))
 
     def verbose(self):
-        if self.res.success:
-            from plot import plot_graph
-            print(self.res.message)
+        from plot import plot_graph
+        print(self.res.message)
+        print('')
+        print('Input Variable Bounds:')
+        print(f'Thickness: [{round(self.thickness_bounds[0], 2)}, {round(self.thickness_bounds[1], 2)}]')
+        print(f'Arclength: [{round(self.arclength_bounds[0], 2)}, {round(self.arclength_bounds[1], 2)}]')
+        print('')
+        print('Properties:')
+        print(f'Elasticity: {round(self.elasticity, 2)}MPa')
+        print(f'Yield stress: {round(self.stress_yield, 2)}MPa')
+        print(f'Safety factor: {self.safety_factor}')
+        print(f'Stiffness: {round(self.stiffness, 2)}Nmm/rad')
+        print(f'Outer radius at preload: {round(self.radius_pre, 2)}mm')
+        print(f'Arclength of spring: {round(self.arclength_E, 2)}mm')
+        print(f'Range of motion: {self.deltatheta_opt}rad')
+        print(f'Preload torque: {self.torque_pre}Nmm')
+        print('')
+        print('Constraints:')
+        print(f'Stress: {round(self.c1, 2)}')
+        print(f'Min Radius: {round(self.c2, 2)}')
+        print(f'Max Radius: {round(self.c3, 3)}')
+        print('')
+        print('Physical Dimensions (output to CAD):')
+        print(f'Height: {self.height}mm')
+        print(f'Thickness: {round(self.thickness, 2)}mm')
+        print(f'Center pad radius: {self.radius_center}mm')
+        print(f'Minimum coil distance: {self.pitch_0}mm')
+        print(f'Pitch @ rest: {round(self.pitch_R, 2)}mm')
+        print(f'Revolutions at rest: {round(self.number_revolutions, 2)}')
+        print(f'Inner spiral radius: {round(self.radius_center + self.thickness/2 + self.pitch_0)}')
+        if round(self.c1, 2) > 0 and round(self.torque_pre_max, 2) > 0:
             print('')
-            print('Input Variable Bounds:')
-            print(f'Thickness: [{round(self.thickness_bounds[0], 2)}, {round(self.thickness_bounds[1], 2)}]')
-            print(f'Arclength: [{round(self.arclength_bounds[0], 2)}, {round(self.arclength_bounds[1], 2)}]')
-            print('')
-            print('Properties:')
-            print(f'Elasticity: {round(self.elasticity, 2)}MPa')
-            print(f'Yield stress: {round(self.stress_yield, 2)}MPa')
-            print(f'Safety factor: {self.safety_factor}')
-            print(f'Stiffness: {round(self.stiffness, 2)}Nmm/rad')
-            print(f'Outer radius at preload: {round(self.radius_pre, 2)}mm')
-            print(f'Arclength of spring: {round(self.arclength_E, 2)}mm')
-            print(f'Range of motion: {self.deltatheta_opt}rad')
-            print(f'Preload torque: {self.torque_pre}Nmm')
-            print('')
-            print('Constraints:')
-            print(f'Stress: {round(self.c1, 2)}')
-            print(f'Min Radius: {round(self.c2, 2)}')
-            print(f'Max Radius: {round(self.c3, 3)}')
-            print('')
-            print('Physical Dimensions (output to CAD):')
-            print(f'Height: {self.height}mm')
-            print(f'Thickness: {round(self.thickness, 2)}mm')
-            print(f'Center pad radius: {self.radius_center}mm')
-            print(f'Minimum coil distance: {self.pitch_0}mm')
-            print(f'Pitch @ rest: {round(self.pitch_R, 2)}mm')
-            print(f'Revolutions at rest: {round(self.number_revolutions, 2)}')
-            print(f'Inner spiral radius: {round(self.radius_center + self.thickness/2 + self.pitch_0)}')
-            if round(self.c1, 2) > 0 and round(self.torque_pre_max, 2) > 0:
-                print('')
-                print(f'This spring leaves {round(self.c1, 2)}MPa of elasticity unutilized!')
-                print(f'Increase preload torque to {round(self.torque_pre_max, 2)}Nmm to fully utilize elasticity.')
-            plot_graph(self)
-        else:
-            print(self.res)
+            print(f'This spring leaves {round(self.c1, 2)}MPa of elasticity unutilized!')
+            print(f'Increase preload torque to {round(self.torque_pre_max, 2)}Nmm to fully utilize elasticity.')
+        plot_graph(self)
 
     def to_dict(self):
         return {
