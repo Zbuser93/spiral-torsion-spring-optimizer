@@ -1,4 +1,4 @@
-from scipy.optimize import NonlinearConstraint, brentq, shgo
+from scipy.optimize import NonlinearConstraint, OptimizeResult, brentq, shgo
 from copy import copy
 import numpy as np
 
@@ -75,7 +75,7 @@ class SpiralTorsionSpring:
         # minimum arclength:
         min_arclength_E_thickness = (
             # thickness that results in shortest arclength (derivative of min_arclength_E with respect to thickness)
-            3 * np.sqrt( 2 * sp.torque_pre / (sp.height * sp.stress_allowed) )
+            3 * np.sqrt(2 * sp.torque_pre / (sp.height * sp.stress_allowed))
         )
         if min_arclength_E_thickness < sp.min_thickness:
             min_arclength_E_thickness = sp.min_thickness
@@ -92,6 +92,15 @@ class SpiralTorsionSpring:
         )
         sp.thickness_bounds = (sp.min_thickness, max_thickness)
         sp.arclength_bounds = (min_arclength_E, max_arclength_E)
+
+        # validate bounds:
+        if sp.thickness_bounds[0] > sp.thickness_bounds[1] or sp.arclength_bounds[0] > sp.arclength_bounds[1]:
+            sp.res = OptimizeResult(
+                x=None,
+                success=False,
+                message=f"No solution possible; bounds infeasible"
+            )
+            return sp
 
         # configure optimizer parameters:
         params = {
@@ -127,6 +136,13 @@ class SpiralTorsionSpring:
             sampling_method=params['sampling_method'],
             workers=params['workers']
         )
+
+        # validate shgo result:
+        if sp.res.x is None:
+            sp.res.success = False
+            if not sp.res.message:
+                sp.res.message = "SHGO found no feasible solution"
+            return sp
 
         # calculate remaining properties:
         sp.build_spring_ms()
@@ -330,6 +346,8 @@ class SpiralTorsionSpring:
         print('Input Variable Bounds:')
         print(f'Thickness: [{round(self.thickness_bounds[0], 2)}, {round(self.thickness_bounds[1], 2)}]')
         print(f'Arclength: [{round(self.arclength_bounds[0], 2)}, {round(self.arclength_bounds[1], 2)}]')
+        if not self.res.x.all():
+            return
         print('')
         print('Properties:')
         print(f'Elasticity: {round(self.elasticity, 2)}MPa')
